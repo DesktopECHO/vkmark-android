@@ -54,6 +54,34 @@ To install use:
 
 `$ [DESTDIR=...] ninja -C build install`
 
+# Building for Android
+
+The **android** directory contains a Gradle project that builds vkmark as an
+Android application (Android 7.0 or later, arm64-v8a and x86_64).
+
+To build it you need the Android SDK with the NDK and CMake packages (the
+required versions are downloaded automatically if the SDK licenses have been
+accepted), python3 and git. The glm, assimp and Vulkan-Headers dependencies
+are downloaded during the build.
+
+To build the application use:
+
+`$ cd android && ./gradlew assembleRelease`
+
+This creates **android/app/build/outputs/apk/release/app-release.apk**, which
+contains the native code for all supported architectures and is signed with
+the local debug key, so that it can be installed directly with:
+
+`$ adb install android/app/build/outputs/apk/release/app-release.apk`
+
+Launching the application runs the default benchmarks on the full screen and
+displays the results. The usual command-line options can be passed in the
+`args` string extra of the launch intent, for example:
+
+`$ adb shell am start -n org.vkmark.android/.MainActivity --es args "'-b cube -b shading:shading=phong'"`
+
+The output is also sent to the Android log with the `vkmark` tag.
+
 # Running
 
 After installing you can run vkmark with:
