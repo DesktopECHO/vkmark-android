@@ -82,8 +82,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
 
+        // Draw behind the system bars, so that the surface covers the whole
+        // screen even while the bars are (transiently) visible.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            getWindow().setDecorFitsSystemWindows(false);
+        }
+
         setContentView(createContentView());
         surfaceView.getHolder().addCallback(this);
+        hideSystemBars();
     }
 
     private View createContentView() {
