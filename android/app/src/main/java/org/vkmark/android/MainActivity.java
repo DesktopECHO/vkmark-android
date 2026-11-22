@@ -404,6 +404,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 value = args[++i];
             } else if (args[i].startsWith("--size=")) {
                 value = args[i].substring("--size=".length());
+            } else if (args[i].startsWith("-s") && !args[i].startsWith("--")) {
+                value = args[i].substring("-s".length());
             }
 
             if (value != null) {
