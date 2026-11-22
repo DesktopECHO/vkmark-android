@@ -93,9 +93,7 @@ vk::SurfaceFormatKHR select_surface_format(
         format_infos.begin(), format_infos.end(),
         [] (auto const& a, auto const& b)
         {
-            if (a.srgb != b.srgb)
-                return a.srgb;
-            return a.bits > b.bits;
+            return (a.srgb && !b.srgb) || a.bits > b.bits;
         });
 
     return format_infos[0].format;
@@ -208,18 +206,8 @@ bool SwapchainWindowSystem::should_quit()
 ManagedResource<vk::SwapchainKHR> SwapchainWindowSystem::create_vk_swapchain()
 {
     auto const surface_caps = vulkan->physical_device().getSurfaceCapabilitiesKHR(vk_surface);
-    auto composite_alpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
-    auto pre_transform = surface_caps.currentTransform;
-#ifdef __ANDROID__
-    // Android surfaces often support only inherited alpha, and report the
-    // display rotation as the current transform. We always render unrotated
-    // and let the compositor apply any rotation.
-    if (!(surface_caps.supportedCompositeAlpha & composite_alpha))
-        composite_alpha = vk::CompositeAlphaFlagBitsKHR::eInherit;
-    if (surface_caps.supportedTransforms & vk::SurfaceTransformFlagBitsKHR::eIdentity)
-        pre_transform = vk::SurfaceTransformFlagBitsKHR::eIdentity;
-#endif
-    if (!(surface_caps.supportedCompositeAlpha & composite_alpha))
+    if (!(surface_caps.supportedCompositeAlpha &
+          vk::CompositeAlphaFlagBitsKHR::eOpaque))
     {
         throw std::runtime_error("Opaque not supported");
     }
@@ -248,18 +236,6 @@ ManagedResource<vk::SwapchainKHR> SwapchainWindowSystem::create_vk_swapchain()
                to_string(vk_image_format).c_str());
 
     auto const present_modes = vulkan->physical_device().getSurfacePresentModesKHR(vk_surface);
-#ifdef __ANDROID__
-    // Many Android devices support only the fifo modes, so fall back to
-    // fifo (which is always available) instead of failing.
-    if (std::find(present_modes.begin(), present_modes.end(), vk_present_mode) ==
-            present_modes.end())
-    {
-        Log::warning("Present mode %s is not supported, using %s instead\n",
-                     to_string(vk_present_mode).c_str(),
-                     to_string(vk::PresentModeKHR::eFifo).c_str());
-        vk_present_mode = vk::PresentModeKHR::eFifo;
-    }
-#endif
     if (std::find(present_modes.begin(), present_modes.end(), vk_present_mode) ==
             present_modes.end())
     {
@@ -284,8 +260,6 @@ ManagedResource<vk::SwapchainKHR> SwapchainWindowSystem::create_vk_swapchain()
         .setImageSharingMode(vk::SharingMode::eExclusive)
         .setQueueFamilyIndexCount(1)
         .setPQueueFamilyIndices(&vk_present_queue_family_index)
-        .setPreTransform(pre_transform)
-        .setCompositeAlpha(composite_alpha)
         .setPresentMode(vk_present_mode);
 
     return ManagedResource<vk::SwapchainKHR>{

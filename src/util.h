@@ -27,17 +27,8 @@
 #include <sstream>
 #include <cstdint>
 
-#ifdef __ANDROID__
-struct AAssetManager;
-#endif
-
 namespace Util
 {
-
-#ifdef __ANDROID__
-// On Android data files are read from the APK assets instead of data_dir.
-void set_asset_manager(AAssetManager* asset_manager);
-#endif
 
 std::vector<std::string> split(std::string const& src, char delim);
 

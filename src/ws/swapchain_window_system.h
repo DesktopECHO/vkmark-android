@@ -60,7 +60,7 @@ private:
     ManagedResource<vk::SwapchainKHR> create_vk_swapchain();
 
     std::unique_ptr<NativeSystem> const native;
-    vk::PresentModeKHR vk_present_mode;
+    vk::PresentModeKHR const vk_present_mode;
     vk::Format const vk_pixel_format;
 
     VulkanState* vulkan;

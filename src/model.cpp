@@ -83,22 +83,9 @@ Model::Model(std::string const& model_file)
     importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE,
                                 aiPrimitiveType_LINE | aiPrimitiveType_POINT);
 
-#ifdef __ANDROID__
-    // Model files live in the APK assets, so parse them from memory,
-    // using the file extension as the format hint.
-    auto const contents = Util::read_data_file("models/" + model_file);
-    auto const ext_pos = model_file.rfind('.');
-    auto const ext = ext_pos != std::string::npos ? model_file.substr(ext_pos + 1) : "";
-    if (!importer.ReadFileFromMemory(contents.data(), contents.size(),
-                                     post_process_flags, ext.c_str()))
-    {
-        throw std::runtime_error{"Failed to parse model file " + model_file};
-    }
-#else
     auto const path = Util::get_data_file_path("models/" + model_file);
     if (!importer.ReadFile(path.c_str(), post_process_flags))
         throw std::runtime_error{"Failed to parse model file " + model_file};
-#endif
 }
 
 Model::Model(std::string const& model_str, std::string const& model_type)

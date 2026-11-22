@@ -118,15 +118,9 @@ void VulkanState::log_all_devices()
         .setApiVersion(VK_MAKE_VERSION(1, 0, 0));
 #endif
 
-#ifdef __ANDROID__
-    // The Android Vulkan library doesn't provide VK_KHR_display
-    auto const enabled_extensions = std::array<char const*, 1>{
-        VK_KHR_SURFACE_EXTENSION_NAME};
-#else
     auto const enabled_extensions = std::array<char const*, 2>{
         VK_KHR_SURFACE_EXTENSION_NAME,
         VK_KHR_DISPLAY_EXTENSION_NAME};
-#endif
 
     auto const create_info = vk::InstanceCreateInfo{}
         .setPApplicationInfo(&app_info)
@@ -143,7 +137,6 @@ void VulkanState::log_all_devices()
     {
         Log::info("=== Physical Device %d ===\n", i);
         log_device_info(physical_devices[i]);
-#ifndef __ANDROID__
         auto const display_props = physical_devices[i].getDisplayPropertiesKHR();
         for (unsigned i = 0; i < display_props.size(); ++i)
         {
@@ -153,7 +146,6 @@ void VulkanState::log_all_devices()
                       display_props[i].physicalResolution.width,
                       display_props[i].physicalResolution.height);
         }
-#endif
     }
 }
 

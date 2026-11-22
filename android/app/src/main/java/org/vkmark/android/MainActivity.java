@@ -26,7 +26,6 @@ import android.app.ActivityOptions;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build;
@@ -54,6 +53,7 @@ import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -114,7 +114,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private int countdown;
     private final Runnable countdownTick = this::onCountdownTick;
 
-    private native void nativeStart(Surface surface, AssetManager assets, String[] args);
+    private native void nativeStart(Surface surface, String dataDir, String[] args);
     private native void nativeStop();
 
     @Override
@@ -460,6 +460,41 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
+    /**
+     * Copies the vkmark data files from the APK to the file system, where
+     * the native code can read them.
+     *
+     * @return the directory containing the data files
+     */
+    private String extractData() {
+        File dataDir = new File(getFilesDir(), "data");
+        byte[] buffer = new byte[65536];
+
+        try {
+            for (String dir : new String[] {"models", "shaders", "textures"}) {
+                File outDir = new File(dataDir, dir);
+                outDir.mkdirs();
+                String[] names = getAssets().list(dir);
+                if (names == null) {
+                    continue;
+                }
+                for (String name : names) {
+                    try (InputStream in = getAssets().open(dir + "/" + name);
+                         OutputStream out = new FileOutputStream(new File(outDir, name))) {
+                        int n;
+                        while ((n = in.read(buffer)) > 0) {
+                            out.write(buffer, 0, n);
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // The benchmarks will report the files they can't load
+        }
+
+        return dataDir.getPath();
+    }
+
     private String[] getArgs() {
         String args = getIntent().getStringExtra(EXTRA_ARGS);
         if (args == null || args.trim().isEmpty()) {
@@ -505,7 +540,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         statusView.setVisibility(View.VISIBLE);
         resultsView.setVisibility(View.GONE);
         running = true;
-        nativeStart(surfaceView.getHolder().getSurface(), getAssets(), getArgs());
+        nativeStart(surfaceView.getHolder().getSurface(), extractData(), getArgs());
     }
 
     private void stop() {

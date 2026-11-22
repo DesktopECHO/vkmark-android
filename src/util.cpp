@@ -32,25 +32,10 @@
 #define STBI_ONLY_JPEG
 #include "stb_image.h"
 
-#ifdef __ANDROID__
-#include <android/asset_manager.h>
-#endif
-
 namespace
 {
 std::string data_dir;
-
-#ifdef __ANDROID__
-AAssetManager* asset_manager = nullptr;
-#endif
 }
-
-#ifdef __ANDROID__
-void Util::set_asset_manager(AAssetManager* asset_manager_)
-{
-    asset_manager = asset_manager_;
-}
-#endif
 
 std::vector<std::string> Util::split(std::string const& src, char delim)
 {
@@ -94,33 +79,6 @@ std::string Util::get_data_file_path(std::string const& rel_path)
 
 std::vector<char> Util::read_data_file(std::string const& rel_path)
 {
-#ifdef __ANDROID__
-    if (asset_manager)
-    {
-        auto const asset = AAssetManager_open(
-            asset_manager, rel_path.c_str(), AASSET_MODE_BUFFER);
-        if (!asset)
-            throw std::runtime_error{"Failed to open asset " + rel_path};
-
-        std::vector<char> buffer(AAsset_getLength64(asset));
-        size_t total = 0;
-        while (total < buffer.size())
-        {
-            auto const nread = AAsset_read(
-                asset, buffer.data() + total, buffer.size() - total);
-            if (nread <= 0)
-                break;
-            total += nread;
-        }
-        AAsset_close(asset);
-
-        if (total != buffer.size())
-            throw std::runtime_error{"Failed to read asset " + rel_path};
-
-        return buffer;
-    }
-#endif
-
     auto const path = get_data_file_path(rel_path);
     std::ifstream ifs{path, std::ios::ate | std::ios::binary};
 
@@ -179,16 +137,6 @@ Util::Image Util::read_image_file(std::string const& rel_path)
     int c = 0;
 
     Image image;
-#ifdef __ANDROID__
-    if (asset_manager)
-    {
-        auto const contents = read_data_file(rel_path);
-        image.data = stbi_load_from_memory(
-            reinterpret_cast<stbi_uc const*>(contents.data()), contents.size(),
-            &w, &h, &c, STBI_rgb_alpha);
-    }
-    else
-#endif
     image.data = stbi_load(path.c_str(), &w, &h, &c, STBI_rgb_alpha);
 
     if (!image.data)

@@ -41,7 +41,6 @@
 #include "scenes/vertex_scene.h"
 
 #include <jni.h>
-#include <android/asset_manager_jni.h>
 #include <android/log.h>
 #include <android/native_window_jni.h>
 
@@ -195,6 +194,36 @@ void redirect_output_once()
     });
 }
 
+// The upstream device listing needs VK_KHR_display, which Android doesn't
+// provide, so list the devices here instead.
+void log_all_devices()
+{
+    auto const app_info = vk::ApplicationInfo{}
+        .setPApplicationName("vkmark")
+        .setApiVersion(VK_MAKE_VERSION(1, 0, 0));
+    auto const create_info = vk::InstanceCreateInfo{}
+        .setPApplicationInfo(&app_info);
+
+    auto const instance = ManagedResource<vk::Instance>{
+        vk::createInstance(create_info),
+        [] (auto& i) { i.destroy(); }};
+
+    auto const physical_devices = instance.raw.enumeratePhysicalDevices();
+
+    for (size_t i = 0; i < physical_devices.size(); ++i)
+    {
+        auto const props = physical_devices[i].getProperties();
+
+        Log::info("=== Physical Device %zu ===\n", i);
+        Log::info("    Vendor ID:      0x%X\n", props.vendorID);
+        Log::info("    Device ID:      0x%X\n", props.deviceID);
+        Log::info("    Device Name:    %s\n", static_cast<char const*>(props.deviceName));
+        Log::info("    Driver Version: %u\n", props.driverVersion);
+        Log::info("    Device UUID:    %s\n",
+                  static_cast<DeviceUUID>(props.pipelineCacheUUID).representation().data());
+    }
+}
+
 void populate_scene_collection(SceneCollection& sc)
 {
     sc.register_scene(std::make_unique<ClearScene>());
@@ -209,10 +238,12 @@ void populate_scene_collection(SceneCollection& sc)
 
 // The Android counterpart of main() in src/main.cpp. Returns the score,
 // or a negative value if no score was produced.
-int run_vkmark(ANativeWindow* window, std::vector<std::string>& args)
+int run_vkmark(ANativeWindow* window, std::string const& data_dir,
+               std::vector<std::string>& args)
 try
 {
     Options options;
+    options.data_dir = data_dir;
     // Use the native size of the window, unless a size is requested
     options.size = {-1, -1};
 
@@ -247,7 +278,7 @@ try
 
     if (options.list_devices)
     {
-        VulkanState::log_all_devices();
+        log_all_devices();
         return -1;
     }
 
@@ -297,9 +328,10 @@ catch (std::exception const& e)
     return -1;
 }
 
-void benchmark_thread_main(ANativeWindow* window, std::vector<std::string> args)
+void benchmark_thread_main(ANativeWindow* window, std::string data_dir,
+                           std::vector<std::string> args)
 {
-    auto const score = run_vkmark(window, args);
+    auto const score = run_vkmark(window, data_dir, args);
 
     Log::flush();
     ANativeWindow_release(window);
@@ -328,6 +360,16 @@ void stop_benchmark()
 extern "C"
 {
 
+// The upstream device listing code refers to this function, which the Android
+// Vulkan library doesn't provide. It is never called (see log_all_devices()
+// above), but it needs to exist for the library to link.
+VKAPI_ATTR VkResult VKAPI_CALL vkGetPhysicalDeviceDisplayPropertiesKHR(
+    VkPhysicalDevice, uint32_t* property_count, VkDisplayPropertiesKHR*)
+{
+    *property_count = 0;
+    return VK_SUCCESS;
+}
+
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
 {
     java_vm = vm;
@@ -335,7 +377,7 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
 }
 
 JNIEXPORT void JNICALL Java_org_vkmark_android_MainActivity_nativeStart(
-    JNIEnv* env, jobject thiz, jobject surface, jobject asset_manager, jobjectArray jargs)
+    JNIEnv* env, jobject thiz, jobject surface, jstring jdata_dir, jobjectArray jargs)
 {
     stop_benchmark();
 
@@ -351,14 +393,9 @@ JNIEXPORT void JNICALL Java_org_vkmark_android_MainActivity_nativeStart(
         activity = env->NewGlobalRef(thiz);
     }
 
-    // The global reference keeps the Java AssetManager, and thus the native
-    // one, alive for the lifetime of the process.
-    static jobject asset_manager_ref = nullptr;
-    if (!asset_manager_ref)
-    {
-        asset_manager_ref = env->NewGlobalRef(asset_manager);
-        Util::set_asset_manager(AAssetManager_fromJava(env, asset_manager_ref));
-    }
+    auto const data_dir_chars = env->GetStringUTFChars(jdata_dir, nullptr);
+    std::string data_dir{data_dir_chars};
+    env->ReleaseStringUTFChars(jdata_dir, data_dir_chars);
 
     std::vector<std::string> args{"vkmark"};
     auto const nargs = jargs ? env->GetArrayLength(jargs) : 0;
@@ -380,7 +417,8 @@ JNIEXPORT void JNICALL Java_org_vkmark_android_MainActivity_nativeStart(
     }
 
     quit = false;
-    benchmark_thread = std::thread{benchmark_thread_main, window, std::move(args)};
+    benchmark_thread = std::thread{
+        benchmark_thread_main, window, std::move(data_dir), std::move(args)};
 }
 
 JNIEXPORT void JNICALL Java_org_vkmark_android_MainActivity_nativeStop(JNIEnv* env, jobject)

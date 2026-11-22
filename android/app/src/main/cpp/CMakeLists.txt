@@ -79,6 +79,7 @@ file(GLOB VKMARK_SCENE_SOURCES CONFIGURE_DEPENDS "${VKMARK_SRC}/scenes/*.cpp")
 add_library(
     vkmark-android SHARED
     vkmark_jni.cpp
+    android_native_system.cpp
     "${VKMARK_SRC}/benchmark.cpp"
     "${VKMARK_SRC}/benchmark_collection.cpp"
     "${VKMARK_SRC}/default_benchmarks.cpp"
@@ -93,7 +94,6 @@ add_library(
     "${VKMARK_SRC}/util.cpp"
     "${VKMARK_SRC}/vulkan_state.cpp"
     "${VKMARK_SRC}/ws/swapchain_window_system.cpp"
-    "${VKMARK_SRC}/ws/android_native_system.cpp"
     ${VKMARK_VKUTIL_SOURCES}
     ${VKMARK_SCENE_SOURCES}
     "${FORMAT_MAP_GEN_H}"
@@ -112,9 +112,9 @@ target_compile_definitions(
     vkmark-android PRIVATE
     VK_USE_PLATFORM_ANDROID_KHR
     VKMARK_VERSION_STR="${VKMARK_VERSION}"
-    # Data files are read from the APK assets and the window system is
+    # The data directory is set at runtime and the window system is
     # built in, so these are just placeholders.
-    VKMARK_DATA_DIR="assets"
+    VKMARK_DATA_DIR=""
     VKMARK_WINDOW_SYSTEM_DIR=""
     )
 
