@@ -72,6 +72,12 @@ jmethodID on_native_finished = nullptr;
 std::thread benchmark_thread;
 std::atomic<bool> quit{false};
 
+// Written to the output stream to mark the point where the benchmarks
+// finished, so that the activity is notified only after it has received all
+// the output that precedes it.
+char const finished_marker = '\x1e';
+std::atomic<int> finished_score{-1};
+
 struct ScopedJNIEnv
 {
     ScopedJNIEnv()
@@ -114,6 +120,19 @@ void send_output_to_activity(JNIEnv* env, char const* data, size_t size)
         env->ExceptionClear();
 }
 
+void notify_finished(JNIEnv* env, int score)
+{
+    std::lock_guard<std::mutex> lock{activity_mutex};
+
+    if (!env || !activity)
+        return;
+
+    env->CallVoidMethod(activity, on_native_finished, score);
+
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+}
+
 // vkmark logs to stdout and stderr, which go nowhere on Android, so redirect
 // them to a pipe and forward what is written there to logcat and the activity.
 void forward_output(int fd)
@@ -125,10 +144,25 @@ void forward_output(int fd)
 
     while ((nread = read(fd, buf, sizeof(buf))) > 0)
     {
-        send_output_to_activity(jni.env, buf, nread);
+        ssize_t start = 0;
+        for (ssize_t i = 0; i < nread; ++i)
+        {
+            if (buf[i] == finished_marker)
+            {
+                if (i > start)
+                    send_output_to_activity(jni.env, buf + start, i - start);
+                notify_finished(jni.env, finished_score);
+                start = i + 1;
+            }
+        }
+        if (nread > start)
+            send_output_to_activity(jni.env, buf + start, nread - start);
 
         for (ssize_t i = 0; i < nread; ++i)
         {
+            if (buf[i] == finished_marker)
+                continue;
+
             if (buf[i] == '\n')
             {
                 __android_log_write(ANDROID_LOG_INFO, log_tag, pending_line.c_str());
@@ -159,20 +193,6 @@ void redirect_output_once()
 
         std::thread{forward_output, fds[0]}.detach();
     });
-}
-
-void notify_finished(int score)
-{
-    ScopedJNIEnv jni;
-    std::lock_guard<std::mutex> lock{activity_mutex};
-
-    if (!jni.env || !activity)
-        return;
-
-    jni.env->CallVoidMethod(activity, on_native_finished, score);
-
-    if (jni.env->ExceptionCheck())
-        jni.env->ExceptionClear();
 }
 
 void populate_scene_collection(SceneCollection& sc)
@@ -282,12 +302,16 @@ void benchmark_thread_main(ANativeWindow* window, std::vector<std::string> args)
     auto const score = run_vkmark(window, args);
 
     Log::flush();
-    fflush(stdout);
     ANativeWindow_release(window);
 
     // If we were asked to quit, the activity is not interested in the result
     if (!quit)
-        notify_finished(score);
+    {
+        finished_score = score;
+        fputc(finished_marker, stdout);
+    }
+
+    fflush(stdout);
 }
 
 void stop_benchmark()

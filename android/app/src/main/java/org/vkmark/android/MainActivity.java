@@ -19,13 +19,19 @@
 
 package org.vkmark.android;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.Surface;
@@ -41,10 +47,20 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Runs vkmark on a full screen surface.
+ *
+ * The benchmarks start when the activity is launched, and when they
+ * finish the results are saved to a text file in the Documents folder.
  *
  * The usual vkmark command line options can be passed in the "args"
  * string extra of the launching intent, e.g.:
@@ -58,14 +74,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private static final String EXTRA_ARGS = "args";
+    private static final int REQUEST_STORAGE_PERMISSION = 1;
 
     private final StringBuilder log = new StringBuilder();
     private SurfaceView surfaceView;
     private TextView statusView;
     private View resultsView;
     private TextView scoreView;
+    private TextView savedView;
     private TextView logView;
     private boolean surfaceReady = false;
+    // Whether the benchmarks should run when the surface is ready
+    private boolean runRequested = false;
     private boolean running = false;
     private boolean finished = false;
 
@@ -91,6 +111,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         setContentView(createContentView());
         surfaceView.getHolder().addCallback(this);
         hideSystemBars();
+
+        requestRun();
     }
 
     private View createContentView() {
@@ -125,9 +147,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         scoreView.setTypeface(Typeface.DEFAULT_BOLD);
         results.addView(scoreView);
 
+        savedView = new TextView(this);
+        savedView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        savedView.setTextColor(0xFFCCCCCC);
+        savedView.setGravity(Gravity.CENTER);
+        results.addView(savedView);
+
         Button runAgain = new Button(this);
         runAgain.setText(R.string.run_again);
-        runAgain.setOnClickListener(v -> runAgain());
+        runAgain.setOnClickListener(v -> {
+            finished = false;
+            requestRun();
+        });
         LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         buttonParams.topMargin = pad;
@@ -160,9 +191,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // A new launch (e.g., with different arguments) restarts the benchmarks
+        // A new launch (e.g., with different arguments) starts over
         setIntent(intent);
-        runAgain();
+        finished = false;
+        requestRun();
     }
 
     @Override
@@ -199,11 +231,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-        // Restart interrupted benchmarks, since the swapchain is tied to
+        // Restart running benchmarks, since the swapchain is tied to
         // the surface and its size.
         stop();
         surfaceReady = true;
-        if (!finished) {
+        if (runRequested && !finished) {
             start();
         }
     }
@@ -223,6 +255,38 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         return args.trim().split("\\s+");
     }
 
+    /** Runs the benchmarks as soon as possible. */
+    private void requestRun() {
+        // Before Android 10 a permission is needed to save the results
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                new String[] {Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                REQUEST_STORAGE_PERMISSION);
+            return;
+        }
+        run();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Run even without the permission; saving the results will just fail
+        if (requestCode == REQUEST_STORAGE_PERMISSION) {
+            run();
+        }
+    }
+
+    private void run() {
+        stop();
+        runRequested = true;
+        if (surfaceReady) {
+            start();
+        }
+    }
+
     private void start() {
         log.setLength(0);
         statusView.setText("");
@@ -239,12 +303,48 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         }
     }
 
-    private void runAgain() {
-        stop();
-        finished = false;
-        if (surfaceReady) {
-            start();
+    /**
+     * Saves the results to Documents/vkmark-yymmdd-hhmm.txt.
+     *
+     * @return the name of the saved file
+     */
+    private String saveResults(String results) throws IOException {
+        String name = "vkmark-"
+            + new SimpleDateFormat("yyMMdd-HHmm", Locale.US).format(new Date()) + ".txt";
+        byte[] data = results.getBytes(StandardCharsets.UTF_8);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS);
+            Uri uri = getContentResolver().insert(
+                MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values);
+            if (uri == null) {
+                throw new IOException("Failed to create " + name);
+            }
+            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out == null) {
+                    throw new IOException("Failed to open " + name);
+                }
+                out.write(data);
+            } catch (IOException | RuntimeException e) {
+                getContentResolver().delete(uri, null, null);
+                throw e;
+            }
+        } else {
+            @SuppressWarnings("deprecation")
+            File dir = Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DOCUMENTS);
+            if (!dir.isDirectory() && !dir.mkdirs()) {
+                throw new IOException("Failed to create " + dir);
+            }
+            try (OutputStream out = new FileOutputStream(new File(dir, name))) {
+                out.write(data);
+            }
         }
+
+        return name;
     }
 
     private void updateStatus() {
@@ -290,6 +390,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
                 scoreView.setText(getString(R.string.score, score));
             } else {
                 scoreView.setText(R.string.no_score);
+            }
+            try {
+                savedView.setText(getString(R.string.saved, saveResults(log.toString())));
+            } catch (IOException | RuntimeException e) {
+                savedView.setText(getString(R.string.not_saved, e.getMessage()));
             }
             logView.setText(log);
             statusView.setVisibility(View.GONE);

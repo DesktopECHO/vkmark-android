@@ -10,6 +10,11 @@
         android:version="0"
         android:required="true" />
 
+    <!-- Needed to save the results to the Documents folder before Android 10 -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <application
         android:allowBackup="false"
         android:hasCode="true"

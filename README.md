@@ -74,9 +74,12 @@ the local debug key, so that it can be installed directly with:
 
 `$ adb install android/app/build/outputs/apk/release/app-release.apk`
 
-Launching the application runs the default benchmarks on the full screen and
-displays the results. The usual command-line options can be passed in the
-`args` string extra of the launch intent, for example:
+Launching the application runs the default benchmarks on the full screen.
+When they finish the results are displayed and saved to
+**vkmark-yymmdd-hhmm.txt** in the Documents folder of the device.
+
+The usual command-line options can be passed in the `args` string extra of the
+launch intent, for example:
 
 `$ adb shell am start -n org.vkmark.android/.MainActivity --es args "'-b cube -b shading:shading=phong'"`
 
