@@ -3,7 +3,6 @@
     <string name="app_name">vkmark</string>
     <string name="run_again">Run again</string>
     <string name="saved">Results saved to Documents/%1$s</string>
-    <string name="not_saved">Failed to save results: %1$s</string>
     <string name="score">vkmark Score: %1$d</string>
     <string name="no_score">vkmark</string>
 </resources>

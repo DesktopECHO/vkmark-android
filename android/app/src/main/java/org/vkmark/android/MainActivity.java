@@ -273,7 +273,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     public void onRequestPermissionsResult(int requestCode, String[] permissions,
                                            int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        // Run even without the permission; saving the results will just fail
+        // Run even without the permission; the results just won't be saved
         if (requestCode == REQUEST_STORAGE_PERMISSION) {
             run();
         }
@@ -394,7 +394,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             try {
                 savedView.setText(getString(R.string.saved, saveResults(log.toString())));
             } catch (IOException | RuntimeException e) {
-                savedView.setText(getString(R.string.not_saved, e.getMessage()));
+                // If the results can't be saved, just carry on without the file
+                savedView.setText("");
             }
             logView.setText(log);
             statusView.setVisibility(View.GONE);
