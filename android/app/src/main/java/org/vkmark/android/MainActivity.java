@@ -21,6 +21,7 @@ package org.vkmark.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -31,6 +32,8 @@ import android.os.Build;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -59,8 +62,9 @@ import java.util.Locale;
 /**
  * Runs vkmark on a full screen surface.
  *
- * The benchmarks start when the activity is launched, and when they
- * finish the results are saved to a text file in the Documents folder.
+ * The benchmarks start a few seconds after the activity has come to the
+ * front in full screen, and when they finish the results are saved to a
+ * text file in the Documents folder.
  *
  * The usual vkmark command line options can be passed in the "args"
  * string extra of the launching intent, e.g.:
@@ -75,6 +79,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private static final String EXTRA_ARGS = "args";
     private static final int REQUEST_STORAGE_PERMISSION = 1;
+    // How long to wait in the foreground before starting the benchmarks,
+    // to let the system settle after the launch
+    private static final int START_DELAY_SECONDS = 5;
 
     private final StringBuilder log = new StringBuilder();
     private SurfaceView surfaceView;
@@ -88,6 +95,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private boolean runRequested = false;
     private boolean running = false;
     private boolean finished = false;
+
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private boolean countingDown = false;
+    private int countdown;
+    private final Runnable countdownTick = this::onCountdownTick;
 
     private native void nativeStart(Surface surface, AssetManager assets, String[] args);
     private native void nativeStop();
@@ -202,7 +214,73 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             hideSystemBars();
+            maybeBeginCountdown();
+        } else {
+            // Start counting again when we are back in front
+            cancelCountdown();
         }
+    }
+
+    @Override
+    public void onMultiWindowModeChanged(boolean inMultiWindowMode) {
+        super.onMultiWindowModeChanged(inMultiWindowMode);
+        if (inMultiWindowMode) {
+            cancelCountdown();
+        } else {
+            maybeBeginCountdown();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void bringToFront() {
+        ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        try {
+            am.moveTaskToFront(getTaskId(), 0);
+        } catch (RuntimeException e) {
+            // We did our best
+        }
+    }
+
+    /**
+     * Starts the benchmarks after a short delay, once the activity is in
+     * front, has the whole screen to itself and has a surface to render to.
+     */
+    private void maybeBeginCountdown() {
+        if (countingDown || running || finished || !runRequested || !surfaceReady) {
+            return;
+        }
+
+        bringToFront();
+        hideSystemBars();
+
+        if (!hasWindowFocus() || isInMultiWindowMode()) {
+            return;
+        }
+
+        countingDown = true;
+        countdown = START_DELAY_SECONDS;
+        resultsView.setVisibility(View.GONE);
+        statusView.setVisibility(View.VISIBLE);
+        onCountdownTick();
+    }
+
+    private void onCountdownTick() {
+        if (!countingDown) {
+            return;
+        }
+        if (countdown <= 0) {
+            countingDown = false;
+            start();
+            return;
+        }
+        statusView.setText(getString(R.string.starting_in, countdown));
+        countdown--;
+        handler.postDelayed(countdownTick, 1000);
+    }
+
+    private void cancelCountdown() {
+        countingDown = false;
+        handler.removeCallbacks(countdownTick);
     }
 
     @SuppressWarnings("deprecation")
@@ -235,15 +313,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         // the surface and its size.
         stop();
         surfaceReady = true;
-        if (runRequested && !finished) {
-            start();
-        }
+        maybeBeginCountdown();
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         // This blocks until the native side has stopped using the surface
         stop();
+        cancelCountdown();
         surfaceReady = false;
     }
 
@@ -281,10 +358,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     private void run() {
         stop();
+        cancelCountdown();
         runRequested = true;
-        if (surfaceReady) {
-            start();
-        }
+        maybeBeginCountdown();
     }
 
     private void start() {

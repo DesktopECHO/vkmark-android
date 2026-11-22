@@ -74,7 +74,8 @@ the local debug key, so that it can be installed directly with:
 
 `$ adb install android/app/build/outputs/apk/release/app-release.apk`
 
-Launching the application runs the default benchmarks on the full screen.
+Launching the application runs the default benchmarks on the full screen,
+after a short delay to let the system settle.
 When they finish the results are displayed and saved to
 **vkmark-yymmdd-hhmm.txt** in the Documents folder of the device.
 
