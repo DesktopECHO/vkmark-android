@@ -22,6 +22,7 @@ package org.vkmark.android;
 import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.ActivityOptions;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -78,6 +79,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     }
 
     private static final String EXTRA_ARGS = "args";
+    private static final String EXTRA_FULLSCREEN_REQUESTED = "fullscreen-requested";
     private static final int REQUEST_STORAGE_PERMISSION = 1;
     // How long to wait in the foreground before starting the benchmarks,
     // to let the system settle after the launch
@@ -90,6 +92,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private TextView scoreView;
     private TextView savedView;
     private TextView logView;
+    private boolean resumed = false;
     private boolean surfaceReady = false;
     // Whether the benchmarks should run when the surface is ready
     private boolean runRequested = false;
@@ -107,6 +110,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        if (relaunchInFullscreen()) {
+            return;
+        }
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -212,23 +219,64 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
+        if (hasFocus && surfaceView != null) {
             hideSystemBars();
-            maybeBeginCountdown();
-        } else {
-            // Start counting again when we are back in front
-            cancelCountdown();
         }
     }
 
     @Override
-    public void onMultiWindowModeChanged(boolean inMultiWindowMode) {
-        super.onMultiWindowModeChanged(inMultiWindowMode);
-        if (inMultiWindowMode) {
-            cancelCountdown();
-        } else {
+    protected void onResume() {
+        super.onResume();
+        resumed = true;
+        if (surfaceView != null) {
+            hideSystemBars();
             maybeBeginCountdown();
         }
+    }
+
+    @Override
+    protected void onPause() {
+        // Start counting again when we are back in front
+        resumed = false;
+        cancelCountdown();
+        super.onPause();
+    }
+
+    /**
+     * If the activity has been placed in a window or a split screen, starts
+     * it again asking for the whole screen.
+     *
+     * @return whether the activity is being relaunched
+     */
+    private boolean relaunchInFullscreen() {
+        if (!isInMultiWindowMode()
+                || getIntent().getBooleanExtra(EXTRA_FULLSCREEN_REQUESTED, false)) {
+            return false;
+        }
+
+        Intent intent = new Intent(getIntent());
+        intent.setClass(this, MainActivity.class);
+        intent.putExtra(EXTRA_FULLSCREEN_REQUESTED, true);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+        // There is no public API to ask for the fullscreen windowing mode,
+        // but the platform reads it from this activity option
+        // (WINDOWING_MODE_FULLSCREEN == 1).
+        Bundle options = ActivityOptions.makeBasic().toBundle();
+        options.putInt("android.activity.windowingMode", 1);
+
+        // The windowing mode belongs to the task, so remove the current task
+        // first to get the activity started in a new one.
+        finishAndRemoveTask();
+        try {
+            getApplicationContext().startActivity(intent, options);
+        } catch (RuntimeException e) {
+            // Try again without asking for anything special
+            intent.putExtra(EXTRA_FULLSCREEN_REQUESTED, true);
+            getApplicationContext().startActivity(intent);
+        }
+
+        return true;
     }
 
     @SuppressWarnings("deprecation")
@@ -243,19 +291,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
 
     /**
      * Starts the benchmarks after a short delay, once the activity is in
-     * front, has the whole screen to itself and has a surface to render to.
+     * front and has a surface to render to.
      */
     private void maybeBeginCountdown() {
-        if (countingDown || running || finished || !runRequested || !surfaceReady) {
+        if (countingDown || running || finished || !runRequested || !surfaceReady || !resumed) {
             return;
         }
 
         bringToFront();
         hideSystemBars();
-
-        if (!hasWindowFocus() || isInMultiWindowMode()) {
-            return;
-        }
 
         countingDown = true;
         countdown = START_DELAY_SECONDS;
