@@ -67,6 +67,11 @@ import java.util.Locale;
  * front in full screen, and when they finish the results are saved to a
  * text file in the Documents folder.
  *
+ * Like on other platforms, the benchmarks are rendered at 800x600 by
+ * default. The image is shown at its actual size in the center of the
+ * screen, without any scaling. Use the --size or --fullscreen options to
+ * change this.
+ *
  * The usual vkmark command line options can be passed in the "args"
  * string extra of the launching intent, e.g.:
  *
@@ -84,6 +89,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     // How long to wait in the foreground before starting the benchmarks,
     // to let the system settle after the launch
     private static final int START_DELAY_SECONDS = 5;
+    // The default size of the vkmark output on all platforms
+    private static final int DEFAULT_WIDTH = 800;
+    private static final int DEFAULT_HEIGHT = 600;
 
     private final StringBuilder log = new StringBuilder();
     private SurfaceView surfaceView;
@@ -92,6 +100,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
     private TextView scoreView;
     private TextView savedView;
     private TextView logView;
+    // The size to render at, or null to use the size of the screen
+    private int[] renderSize;
     private boolean resumed = false;
     private boolean surfaceReady = false;
     // Whether the benchmarks should run when the surface is ready
@@ -127,8 +137,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
             getWindow().setDecorFitsSystemWindows(false);
         }
 
-        setContentView(createContentView());
+        View content = createContentView();
+        setContentView(content);
         surfaceView.getHolder().addCallback(this);
+        content.addOnLayoutChangeListener(
+            (v, l, t, r, b, ol, ot, or, ob) -> {
+                if (r - l != or - ol || b - t != ob - ot) {
+                    v.post(this::updateSurfaceLayout);
+                }
+            });
+        applyRenderSize();
         hideSystemBars();
 
         requestRun();
@@ -212,6 +230,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         super.onNewIntent(intent);
         // A new launch (e.g., with different arguments) starts over
         setIntent(intent);
+        applyRenderSize();
         finished = false;
         requestRun();
     }
@@ -366,6 +385,77 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback {
         stop();
         cancelCountdown();
         surfaceReady = false;
+    }
+
+    /**
+     * Gets the size requested with the --size and --fullscreen options.
+     *
+     * @return the size, or null to use the size of the screen
+     */
+    private static int[] parseRenderSize(String[] args) {
+        int[] size = {DEFAULT_WIDTH, DEFAULT_HEIGHT};
+
+        for (int i = 0; i < args.length; i++) {
+            String value = null;
+            if (args[i].equals("--fullscreen")) {
+                size = null;
+            } else if ((args[i].equals("-s") || args[i].equals("--size"))
+                       && i + 1 < args.length) {
+                value = args[++i];
+            } else if (args[i].startsWith("--size=")) {
+                value = args[i].substring("--size=".length());
+            }
+
+            if (value != null) {
+                try {
+                    String[] dimensions = value.split("x");
+                    int width = Integer.parseInt(dimensions[0]);
+                    int height = dimensions.length > 1 ? Integer.parseInt(dimensions[1]) : width;
+                    size = width > 0 && height > 0 ? new int[] {width, height} : null;
+                } catch (NumberFormatException e) {
+                    // Keep the previous size
+                }
+            }
+        }
+
+        return size;
+    }
+
+    private void applyRenderSize() {
+        renderSize = parseRenderSize(getArgs());
+        if (renderSize != null) {
+            surfaceView.getHolder().setFixedSize(renderSize[0], renderSize[1]);
+        } else {
+            surfaceView.getHolder().setSizeFromLayout();
+        }
+        updateSurfaceLayout();
+    }
+
+    /**
+     * Gives the surface the exact size we are rendering at, so that it is
+     * shown pixel for pixel. The surface is scaled only if it doesn't fit.
+     */
+    private void updateSurfaceLayout() {
+        View parent = (View) surfaceView.getParent();
+        int width = FrameLayout.LayoutParams.MATCH_PARENT;
+        int height = FrameLayout.LayoutParams.MATCH_PARENT;
+
+        if (renderSize != null && parent.getWidth() > 0 && parent.getHeight() > 0) {
+            float scale = Math.min(1.0f,
+                                   Math.min((float) parent.getWidth() / renderSize[0],
+                                            (float) parent.getHeight() / renderSize[1]));
+            width = Math.round(renderSize[0] * scale);
+            height = Math.round(renderSize[1] * scale);
+        }
+
+        FrameLayout.LayoutParams params =
+            (FrameLayout.LayoutParams) surfaceView.getLayoutParams();
+        if (params.width != width || params.height != height) {
+            params.width = width;
+            params.height = height;
+            params.gravity = Gravity.CENTER;
+            surfaceView.setLayoutParams(params);
+        }
     }
 
     private String[] getArgs() {
