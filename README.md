@@ -54,6 +54,27 @@ To install use:
 
 `$ [DESTDIR=...] ninja -C build install`
 
+# Android
+
+The **android** directory contains a Gradle project that builds vkmark as an
+Android application (Android 7.0 or later, arm64-v8a and x86_64). It needs
+the Android SDK, python3 and git; the other dependencies are downloaded
+during the build.
+
+`$ cd android && ./gradlew assembleRelease`
+
+`$ adb install app/build/outputs/apk/release/app-release.apk`
+
+The application runs the default benchmarks at 800x600 a few seconds after it
+is launched, and saves the results to **Documents/vkmark-yymmdd-hhmm.txt**.
+
+Command-line options are passed in the `args` extra of the launch intent:
+
+`$ adb shell am start -n org.vkmark.android/.MainActivity --es args "'-b cube -s 1280x720'"`
+
+The window system and data directory options have no effect on Android. The
+output is also sent to the Android log with the `vkmark` tag.
+
 # Running
 
 After installing you can run vkmark with:

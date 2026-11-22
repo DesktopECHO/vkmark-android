@@ -206,8 +206,11 @@ bool SwapchainWindowSystem::should_quit()
 ManagedResource<vk::SwapchainKHR> SwapchainWindowSystem::create_vk_swapchain()
 {
     auto const surface_caps = vulkan->physical_device().getSurfaceCapabilitiesKHR(vk_surface);
-    if (!(surface_caps.supportedCompositeAlpha &
-          vk::CompositeAlphaFlagBitsKHR::eOpaque))
+    // Some platforms (e.g., Android) support only inherited alpha
+    auto const composite_alpha =
+        (surface_caps.supportedCompositeAlpha & vk::CompositeAlphaFlagBitsKHR::eOpaque) ?
+        vk::CompositeAlphaFlagBitsKHR::eOpaque : vk::CompositeAlphaFlagBitsKHR::eInherit;
+    if (!(surface_caps.supportedCompositeAlpha & composite_alpha))
     {
         throw std::runtime_error("Opaque not supported");
     }
@@ -260,6 +263,7 @@ ManagedResource<vk::SwapchainKHR> SwapchainWindowSystem::create_vk_swapchain()
         .setImageSharingMode(vk::SharingMode::eExclusive)
         .setQueueFamilyIndexCount(1)
         .setPQueueFamilyIndices(&vk_present_queue_family_index)
+        .setCompositeAlpha(composite_alpha)
         .setPresentMode(vk_present_mode);
 
     return ManagedResource<vk::SwapchainKHR>{
